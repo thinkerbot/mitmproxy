@@ -6,7 +6,7 @@ import six
 from harparser import HAR
 
 from datetime import datetime
-
+import pytz
 
 class _HARLog(HAR.log):
     # The attributes need to be registered here for them to actually be
@@ -118,11 +118,15 @@ def response(context, flow):
     # Timings set to -1 will be ignored as per spec.
     full_time = sum(v for v in timings.values() if v > -1)
 
-    started_date_time = datetime.utcfromtimestamp(
-        flow.request.timestamp_start).isoformat()
+    started_date_time = datetime.fromtimestamp(
+        flow.request.timestamp_start, pytz.timezone('America/Denver')).isoformat()
 
     request_query_string = [{"name": k, "value": v}
                             for k, v in flow.request.query or {}]
+
+    request_body_size = len(flow.request.content)
+    request_body_decoded_size = len(flow.request.get_decoded_content())
+    request_body_compression = request_body_decoded_size - request_body_size
 
     response_body_size = len(flow.response.content)
     response_body_decoded_size = len(flow.response.get_decoded_content())
@@ -139,7 +143,14 @@ def response(context, flow):
             "headers": format_headers(flow.request.headers),
             "queryString": request_query_string,
             "headersSize": len(str(flow.request.headers)),
-            "bodySize": len(flow.request.content),
+            "bodySize": request_body_size,
+            "postData": {
+                "mimeType": flow.request.headers.get('Content-Type', ''),
+                "params": [],
+                "text" : flow.request.content,
+                "compression": request_body_compression,
+                "size": request_body_size
+            }
         },
         "response": {
             "status": flow.response.status_code,
@@ -150,7 +161,8 @@ def response(context, flow):
             "content": {
                 "size": response_body_size,
                 "compression": response_body_compression,
-                "mimeType": flow.response.headers.get('Content-Type', '')
+                "mimeType": flow.response.headers.get('Content-Type', ''),
+                "text": flow.response.get_decoded_content()
             },
             "redirectURL": flow.response.headers.get('Location', ''),
             "headersSize": len(str(flow.response.headers)),
@@ -170,6 +182,7 @@ def response(context, flow):
                 "startedDateTime": entry['startedDateTime'],
                 "id": page_id,
                 "title": flow.request.url,
+                "pageTimings": {}
             })
         )
         context.HARLog.set_page_ref(flow.request.url, page_id)
